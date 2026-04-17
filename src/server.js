@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 
 import healthRoutes from "./routes/health.js";
+import clientsRoutes from "./routes/clients.js";
+
 import db from "./db.js";
 
 dotenv.config();
@@ -36,6 +38,7 @@ ROUTES
 */
 
 app.use("/health", healthRoutes);
+app.use("/v1/clients", clientsRoutes);
 
 /*
 ========================================
