@@ -4,6 +4,7 @@ import cors from "cors";
 
 import healthRoutes from "./routes/health.js";
 import clientsRoutes from "./routes/clients.js";
+import workOrdersRoutes from "./routes/workOrders.js";
 
 import db from "./db.js";
 
@@ -39,6 +40,7 @@ ROUTES
 
 app.use("/health", healthRoutes);
 app.use("/v1/clients", clientsRoutes);
+app.use("/v1/work-orders", workOrdersRoutes);
 
 /*
 ========================================
