@@ -11,7 +11,16 @@ GET ALL CLIENTS
 */
 router.get("/", authenticate, async (req, res) => {
   try {
+    console.log("🔍 GET /clients");
+
+    if (!req.organization || !req.organization.id) {
+      console.error("❌ Missing organization in request");
+      return res.status(400).json({ error: "Missing organization context" });
+    }
+
     const orgId = req.organization.id;
+
+    console.log("🏢 ORG ID:", orgId);
 
     const result = await pool.query(
       `
@@ -23,10 +32,14 @@ router.get("/", authenticate, async (req, res) => {
       [orgId]
     );
 
-    res.json({ success: true, data: result.rows });
+    console.log("✅ CLIENTS FOUND:", result.rows.length);
+
+    // 🔥 FIX CLAVE → devolver array directo
+    res.json(result.rows);
+
   } catch (err) {
-    console.error("GET CLIENTS ERROR:", err);
-    res.status(500).json({ success: false, error: "Error fetching clients" });
+    console.error("❌ GET CLIENTS ERROR:", err);
+    res.status(500).json({ error: "Error fetching clients" });
   }
 });
 
@@ -37,6 +50,10 @@ GET CLIENT BY ID
 */
 router.get("/:id", authenticate, async (req, res) => {
   try {
+    if (!req.organization || !req.organization.id) {
+      return res.status(400).json({ error: "Missing organization context" });
+    }
+
     const orgId = req.organization.id;
     const { id } = req.params;
 
@@ -51,15 +68,14 @@ router.get("/:id", authenticate, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Client not found" });
+      return res.status(404).json({ error: "Client not found" });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json(result.rows[0]);
+
   } catch (err) {
     console.error("GET CLIENT ERROR:", err);
-    res.status(500).json({ success: false, error: "Error fetching client" });
+    res.status(500).json({ error: "Error fetching client" });
   }
 });
 
@@ -70,6 +86,10 @@ CREATE CLIENT
 */
 router.post("/", authenticate, async (req, res) => {
   try {
+    if (!req.organization || !req.organization.id) {
+      return res.status(400).json({ error: "Missing organization context" });
+    }
+
     const orgId = req.organization.id;
 
     const {
@@ -82,9 +102,7 @@ router.post("/", authenticate, async (req, res) => {
     } = req.body;
 
     if (!full_name) {
-      return res
-        .status(400)
-        .json({ success: false, error: "full_name is required" });
+      return res.status(400).json({ error: "full_name is required" });
     }
 
     const result = await pool.query(
@@ -112,10 +130,11 @@ router.post("/", authenticate, async (req, res) => {
       ]
     );
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json(result.rows[0]);
+
   } catch (err) {
     console.error("CREATE CLIENT ERROR:", err);
-    res.status(500).json({ success: false, error: "Error creating client" });
+    res.status(500).json({ error: "Error creating client" });
   }
 });
 
@@ -126,6 +145,10 @@ UPDATE CLIENT
 */
 router.put("/:id", authenticate, async (req, res) => {
   try {
+    if (!req.organization || !req.organization.id) {
+      return res.status(400).json({ error: "Missing organization context" });
+    }
+
     const orgId = req.organization.id;
     const { id } = req.params;
 
@@ -165,15 +188,14 @@ router.put("/:id", authenticate, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Client not found" });
+      return res.status(404).json({ error: "Client not found" });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json(result.rows[0]);
+
   } catch (err) {
     console.error("UPDATE CLIENT ERROR:", err);
-    res.status(500).json({ success: false, error: "Error updating client" });
+    res.status(500).json({ error: "Error updating client" });
   }
 });
 
@@ -184,6 +206,10 @@ DELETE CLIENT
 */
 router.delete("/:id", authenticate, async (req, res) => {
   try {
+    if (!req.organization || !req.organization.id) {
+      return res.status(400).json({ error: "Missing organization context" });
+    }
+
     const orgId = req.organization.id;
     const { id } = req.params;
 
@@ -196,9 +222,10 @@ router.delete("/:id", authenticate, async (req, res) => {
     );
 
     res.json({ success: true });
+
   } catch (err) {
     console.error("DELETE CLIENT ERROR:", err);
-    res.status(500).json({ success: false, error: "Error deleting client" });
+    res.status(500).json({ error: "Error deleting client" });
   }
 });
 
