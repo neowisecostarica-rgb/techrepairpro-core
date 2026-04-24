@@ -16,8 +16,8 @@ router.get("/", authenticate, async (req, res) => {
     const result = await db.query(
       `
       SELECT wo.*, c.full_name AS client_name, c.phone
-      FROM work_orders wo
-      LEFT JOIN clients c ON wo.client_id = c.id
+      FROM techrepairpro.work_orders wo
+      LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
       WHERE wo.organization_id = $1
       ORDER BY wo.created_at DESC
       `,
@@ -42,42 +42,36 @@ router.post("/", authenticate, async (req, res) => {
 
     const {
       client_id,
-      diagnosis,
-      solution,
-      estimated_cost,
-      final_cost,
-      status = "pending"
+      equipment_id,
+      intake_notes,
+      priority
     } = req.body;
 
-    if (!client_id) {
+    if (!client_id || !equipment_id) {
       return res.status(400).json({
         success: false,
-        error: "client_id is required"
+        error: "client_id and equipment_id are required"
       });
     }
 
     const result = await db.query(
       `
-      INSERT INTO work_orders (
+      INSERT INTO techrepairpro.work_orders (
         organization_id,
         client_id,
-        diagnosis,
-        solution,
-        estimated_cost,
-        final_cost,
-        status
+        equipment_id,
+        intake_notes,
+        priority
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      VALUES ($1,$2,$3,$4,$5)
       RETURNING *
       `,
       [
         orgId,
         client_id,
-        diagnosis,
-        solution,
-        estimated_cost,
-        final_cost,
-        status
+        equipment_id,
+        intake_notes,
+        priority
       ]
     );
 
@@ -101,8 +95,8 @@ router.get("/:id", authenticate, async (req, res) => {
     const result = await db.query(
       `
       SELECT wo.*, c.full_name AS client_name, c.phone
-      FROM work_orders wo
-      LEFT JOIN clients c ON wo.client_id = c.id
+      FROM techrepairpro.work_orders wo
+      LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
       WHERE wo.id = $1 AND wo.organization_id = $2
       LIMIT 1
       `,
@@ -125,44 +119,30 @@ router.get("/:id", authenticate, async (req, res) => {
 
 /*
 ========================================
-UPDATE WORK ORDER
+UPDATE STATUS ONLY
 ========================================
 */
-router.put("/:id", authenticate, async (req, res) => {
+router.patch("/:id/status", authenticate, async (req, res) => {
   try {
     const orgId = req.organization.id;
     const { id } = req.params;
+    const { status } = req.body;
 
-    const {
-      diagnosis,
-      solution,
-      estimated_cost,
-      final_cost,
-      status
-    } = req.body;
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: "status is required"
+      });
+    }
 
     const result = await db.query(
       `
-      UPDATE work_orders
-      SET
-        diagnosis = COALESCE($1, diagnosis),
-        solution = COALESCE($2, solution),
-        estimated_cost = COALESCE($3, estimated_cost),
-        final_cost = COALESCE($4, final_cost),
-        status = COALESCE($5, status),
-        updated_at = NOW()
-      WHERE id = $6 AND organization_id = $7
+      UPDATE techrepairpro.work_orders
+      SET status = $1
+      WHERE id = $2 AND organization_id = $3
       RETURNING *
       `,
-      [
-        diagnosis,
-        solution,
-        estimated_cost,
-        final_cost,
-        status,
-        id,
-        orgId
-      ]
+      [status, id, orgId]
     );
 
     if (!result.rows.length) {
@@ -174,8 +154,8 @@ router.put("/:id", authenticate, async (req, res) => {
 
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    console.error("UPDATE WORK ORDER ERROR:", err);
-    res.status(500).json({ success: false, error: "Error updating work order" });
+    console.error("UPDATE STATUS ERROR:", err);
+    res.status(500).json({ success: false, error: "Error updating status" });
   }
 });
 
