@@ -17,10 +17,21 @@ app.use(express.json());
 
 /*
 ========================================
+ROOT (IMPORTANTE PARA RENDER)
+========================================
+*/
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "TechRepairPro Core",
+  });
+});
+
+/*
+========================================
 DB TEST
 ========================================
 */
-
 async function testDB() {
   try {
     const result = await db.query("SELECT NOW()");
@@ -37,17 +48,41 @@ testDB();
 ROUTES
 ========================================
 */
-
 app.use("/health", healthRoutes);
 app.use("/v1/clients", clientsRoutes);
 app.use("/v1/work-orders", workOrdersRoutes);
 
 /*
 ========================================
+404 HANDLER
+========================================
+*/
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Route not found",
+  });
+});
+
+/*
+========================================
+GLOBAL ERROR HANDLER
+========================================
+*/
+app.use((err, req, res, next) => {
+  console.error("❌ Global Error:", err);
+
+  res.status(500).json({
+    success: false,
+    error: "Internal server error",
+  });
+});
+
+/*
+========================================
 START SERVER
 ========================================
 */
-
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
