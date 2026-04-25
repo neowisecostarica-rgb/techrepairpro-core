@@ -5,6 +5,7 @@ import cors from "cors";
 import healthRoutes from "./routes/health.js";
 import clientsRoutes from "./routes/clients.js";
 import workOrdersRoutes from "./routes/workOrders.js";
+import equipmentRoutes from "./routes/equipment.js";
 
 import db from "./db.js";
 
