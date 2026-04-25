@@ -8,4 +8,8 @@ const pool = new Pool({
   },
 });
 
+pool.on("connect", (client) => {
+  client.query("SET search_path TO techrepairpro");
+});
+
 export default pool;
