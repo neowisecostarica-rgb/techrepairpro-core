@@ -53,7 +53,7 @@ ROUTES
 app.use("/health", healthRoutes);
 app.use("/v1/clients", clientsRoutes);
 app.use("/v1/work-orders", workOrdersRoutes);
-app.use("/v1/equipment", equipmentRoutes); // ✅ FIX CRÍTICO
+app.use("/v1/equipment", equipmentRoutes);
 app.use("/v1/auth", authRoutes);
 
 /*
