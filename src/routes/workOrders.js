@@ -6,15 +6,16 @@ const router = express.Router();
 
 /*
 ========================================
-GET ALL WORK ORDERS
+GET ALL WORK ORDERS (CON FILTROS)
 ========================================
 */
 router.get("/", authenticate, async (req, res) => {
   try {
     const orgId = req.organization.id;
 
-    const result = await db.query(
-      `
+    const { status, priority } = req.query;
+
+    let query = `
       SELECT 
         wo.*, 
         c.full_name AS client_name, 
@@ -26,12 +27,29 @@ router.get("/", authenticate, async (req, res) => {
       LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
       LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
       WHERE wo.organization_id = $1
-      ORDER BY wo.created_at DESC
-      `,
-      [orgId]
-    );
+    `;
+
+    const params = [orgId];
+    let paramIndex = 2;
+
+    if (status) {
+      query += ` AND wo.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    if (priority) {
+      query += ` AND wo.priority = $${paramIndex}`;
+      params.push(priority);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY wo.created_at DESC`;
+
+    const result = await db.query(query, params);
 
     res.json({ success: true, data: result.rows });
+
   } catch (err) {
     console.error("GET WORK ORDERS ERROR:", err);
     res.status(500).json({ success: false, error: "Error fetching work orders" });
@@ -54,9 +72,7 @@ router.post("/", authenticate, async (req, res) => {
       priority
     } = req.body;
 
-    // ========================================
     // VALIDACIÓN BÁSICA
-    // ========================================
     if (!client_id || !equipment_id) {
       return res.status(400).json({
         success: false,
@@ -64,9 +80,7 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // ========================================
-    // VALIDAR CLIENTE EXISTE (MULTITENANT)
-    // ========================================
+    // VALIDAR CLIENTE
     const clientCheck = await db.query(
       `
       SELECT id FROM techrepairpro.clients
@@ -82,9 +96,7 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // ========================================
-    // VALIDAR EQUIPMENT EXISTE Y PERTENECE
-    // ========================================
+    // VALIDAR EQUIPMENT
     const equipmentCheck = await db.query(
       `
       SELECT id, client_id FROM techrepairpro.equipment
@@ -100,9 +112,7 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // ========================================
     // VALIDAR RELACIÓN CLIENT ↔ EQUIPMENT
-    // ========================================
     if (equipmentCheck.rows[0].client_id !== client_id) {
       return res.status(400).json({
         success: false,
@@ -110,9 +120,7 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // ========================================
     // INSERT
-    // ========================================
     const result = await db.query(
       `
       INSERT INTO techrepairpro.work_orders (
@@ -120,9 +128,10 @@ router.post("/", authenticate, async (req, res) => {
         client_id,
         equipment_id,
         intake_notes,
-        priority
+        priority,
+        status
       )
-      VALUES ($1,$2,$3,$4,$5)
+      VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *
       `,
       [
@@ -130,7 +139,8 @@ router.post("/", authenticate, async (req, res) => {
         client_id,
         equipment_id,
         intake_notes || null,
-        priority || "normal"
+        priority || "normal",
+        "created"
       ]
     );
 
@@ -159,7 +169,8 @@ router.get("/:id", authenticate, async (req, res) => {
         c.full_name AS client_name, 
         c.phone,
         e.brand,
-        e.model
+        e.model,
+        e.serial_number
       FROM techrepairpro.work_orders wo
       LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
       LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
@@ -186,7 +197,7 @@ router.get("/:id", authenticate, async (req, res) => {
 
 /*
 ========================================
-UPDATE STATUS ONLY
+UPDATE STATUS
 ========================================
 */
 router.patch("/:id/status", authenticate, async (req, res) => {
@@ -205,7 +216,8 @@ router.patch("/:id/status", authenticate, async (req, res) => {
     const result = await db.query(
       `
       UPDATE techrepairpro.work_orders
-      SET status = $1
+      SET status = $1,
+          updated_at = NOW()
       WHERE id = $2 AND organization_id = $3
       RETURNING *
       `,
