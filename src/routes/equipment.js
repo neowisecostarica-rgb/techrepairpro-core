@@ -22,7 +22,7 @@ CREATE EQUIPMENT
 */
 router.post("/", authenticate, async (req, res) => {
   try {
-    const organization_id = req.organization_id;
+   const organization_id = req.organization.id;
 
     let {
       client_id,
