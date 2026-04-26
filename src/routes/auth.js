@@ -1,6 +1,6 @@
 import express from "express";
 import db from "../db.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
@@ -105,9 +105,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // get membership (por ahora 1 org)
+    // get membership
     const membershipResult = await db.query(
-      `SELECT * FROM memberships WHERE user_id = $1 AND is_active = true LIMIT 1`,
+      `SELECT * FROM memberships 
+       WHERE user_id = $1 AND is_active = true 
+       LIMIT 1`,
       [user.id]
     );
 
@@ -152,7 +154,7 @@ router.post("/login", async (req, res) => {
 
 /*
 ========================================
-ME
+ME (placeholder)
 ========================================
 */
 router.get("/me", async (req, res) => {
