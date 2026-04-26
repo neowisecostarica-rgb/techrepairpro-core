@@ -15,9 +15,16 @@ router.get("/", authenticate, async (req, res) => {
 
     const result = await db.query(
       `
-      SELECT wo.*, c.full_name AS client_name, c.phone
+      SELECT 
+        wo.*, 
+        c.full_name AS client_name, 
+        c.phone,
+        e.brand,
+        e.model,
+        e.serial_number
       FROM techrepairpro.work_orders wo
       LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
+      LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
       WHERE wo.organization_id = $1
       ORDER BY wo.created_at DESC
       `,
@@ -47,6 +54,9 @@ router.post("/", authenticate, async (req, res) => {
       priority
     } = req.body;
 
+    // ========================================
+    // VALIDACIÓN BÁSICA
+    // ========================================
     if (!client_id || !equipment_id) {
       return res.status(400).json({
         success: false,
@@ -54,6 +64,55 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
+    // ========================================
+    // VALIDAR CLIENTE EXISTE (MULTITENANT)
+    // ========================================
+    const clientCheck = await db.query(
+      `
+      SELECT id FROM techrepairpro.clients
+      WHERE id = $1 AND organization_id = $2
+      `,
+      [client_id, orgId]
+    );
+
+    if (!clientCheck.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "Client not found"
+      });
+    }
+
+    // ========================================
+    // VALIDAR EQUIPMENT EXISTE Y PERTENECE
+    // ========================================
+    const equipmentCheck = await db.query(
+      `
+      SELECT id, client_id FROM techrepairpro.equipment
+      WHERE id = $1 AND organization_id = $2
+      `,
+      [equipment_id, orgId]
+    );
+
+    if (!equipmentCheck.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipment not found"
+      });
+    }
+
+    // ========================================
+    // VALIDAR RELACIÓN CLIENT ↔ EQUIPMENT
+    // ========================================
+    if (equipmentCheck.rows[0].client_id !== client_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Equipment does not belong to this client"
+      });
+    }
+
+    // ========================================
+    // INSERT
+    // ========================================
     const result = await db.query(
       `
       INSERT INTO techrepairpro.work_orders (
@@ -70,12 +129,13 @@ router.post("/", authenticate, async (req, res) => {
         orgId,
         client_id,
         equipment_id,
-        intake_notes,
-        priority
+        intake_notes || null,
+        priority || "normal"
       ]
     );
 
     res.json({ success: true, data: result.rows[0] });
+
   } catch (err) {
     console.error("CREATE WORK ORDER ERROR:", err);
     res.status(500).json({ success: false, error: "Error creating work order" });
@@ -94,9 +154,15 @@ router.get("/:id", authenticate, async (req, res) => {
 
     const result = await db.query(
       `
-      SELECT wo.*, c.full_name AS client_name, c.phone
+      SELECT 
+        wo.*, 
+        c.full_name AS client_name, 
+        c.phone,
+        e.brand,
+        e.model
       FROM techrepairpro.work_orders wo
       LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
+      LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
       WHERE wo.id = $1 AND wo.organization_id = $2
       LIMIT 1
       `,
@@ -111,6 +177,7 @@ router.get("/:id", authenticate, async (req, res) => {
     }
 
     res.json({ success: true, data: result.rows[0] });
+
   } catch (err) {
     console.error("GET WORK ORDER ERROR:", err);
     res.status(500).json({ success: false, error: "Error fetching work order" });
@@ -153,6 +220,7 @@ router.patch("/:id/status", authenticate, async (req, res) => {
     }
 
     res.json({ success: true, data: result.rows[0] });
+
   } catch (err) {
     console.error("UPDATE STATUS ERROR:", err);
     res.status(500).json({ success: false, error: "Error updating status" });
