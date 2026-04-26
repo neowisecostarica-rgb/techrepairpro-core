@@ -15,54 +15,70 @@ REGISTER
 ========================================
 */
 router.post("/register", async (req, res) => {
+  const client = await db.connect();
+
   try {
     const { email, password, full_name, organization_id } = req.body;
 
     if (!email || !password || !organization_id) {
+      client.release();
+
       return res.status(400).json({
         success: false,
         error: "email, password, organization_id are required",
       });
     }
 
-    // hash password
+    await client.query("BEGIN");
+
     const password_hash = await bcrypt.hash(password, 10);
 
-    // create user
-    const userResult = await db.query(
+    const userResult = await client.query(
       `INSERT INTO users (email, password_hash, full_name)
        VALUES ($1, $2, $3)
        RETURNING id, email, full_name`,
-      [email, password_hash, full_name]
+      [email, password_hash, full_name || null]
     );
 
     const user = userResult.rows[0];
 
-    // create membership
-    await db.query(
+    await client.query(
       `INSERT INTO memberships (user_id, organization_id, role)
        VALUES ($1, $2, $3)`,
       [user.id, organization_id, "ORG_ADMIN"]
     );
+
+    await client.query("COMMIT");
 
     return res.json({
       success: true,
       user,
     });
   } catch (error) {
-    console.error("REGISTER ERROR:", error);
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("🔥 REGISTER ROLLBACK ERROR:", rollbackError);
+    }
+
+    console.error("🔥 REGISTER ERROR FULL:", error);
 
     if (error.code === "23505") {
       return res.status(400).json({
         success: false,
         error: "Email already exists",
+        detail: error.detail || null,
       });
     }
 
     return res.status(500).json({
       success: false,
-      error: "Server error",
+      error: error.message,
+      detail: error.detail || null,
+      code: error.code || null,
     });
+  } finally {
+    client.release();
   }
 });
 
@@ -82,9 +98,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // find user
     const userResult = await db.query(
-      `SELECT * FROM users WHERE email = $1`,
+      `SELECT id, email, full_name, password_hash, is_active
+       FROM users
+       WHERE email = $1
+       LIMIT 1`,
       [email]
     );
 
@@ -97,7 +115,13 @@ router.post("/login", async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // compare password
+    if (user.is_active === false) {
+      return res.status(403).json({
+        success: false,
+        error: "User is inactive",
+      });
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
@@ -107,10 +131,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // get membership
     const membershipResult = await db.query(
-      `SELECT * FROM memberships 
-       WHERE user_id = $1 AND is_active = true 
+      `SELECT id, user_id, organization_id, role, is_active
+       FROM memberships
+       WHERE user_id = $1
+         AND is_active = true
        LIMIT 1`,
       [user.id]
     );
@@ -118,16 +143,16 @@ router.post("/login", async (req, res) => {
     if (membershipResult.rows.length === 0) {
       return res.status(403).json({
         success: false,
-        error: "No organization assigned",
+        error: "No active organization assigned",
       });
     }
 
     const membership = membershipResult.rows[0];
 
-    // create token
     const token = jwt.sign(
       {
         user_id: user.id,
+        membership_id: membership.id,
         organization_id: membership.organization_id,
         role: membership.role,
       },
@@ -143,26 +168,33 @@ router.post("/login", async (req, res) => {
         email: user.email,
         full_name: user.full_name,
       },
+      membership: {
+        id: membership.id,
+        organization_id: membership.organization_id,
+        role: membership.role,
+      },
     });
   } catch (error) {
-    console.error("LOGIN ERROR:", error);
+    console.error("🔥 LOGIN ERROR FULL:", error);
 
     return res.status(500).json({
       success: false,
-      error: "Server error",
+      error: error.message,
+      detail: error.detail || null,
+      code: error.code || null,
     });
   }
 });
 
 /*
 ========================================
-ME (placeholder)
+ME (TEMPORAL)
 ========================================
 */
 router.get("/me", async (req, res) => {
   return res.json({
     success: true,
-    message: "Use token in next phase",
+    message: "AUTH routes active. Middleware JWT comes next.",
   });
 });
 
