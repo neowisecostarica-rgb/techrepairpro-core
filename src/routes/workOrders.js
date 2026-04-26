@@ -6,7 +6,7 @@ const router = express.Router();
 
 /*
 ========================================
-GET WORK ORDER METRICS
+GET WORK ORDER METRICS (PRO)
 ========================================
 */
 router.get("/metrics/summary", authenticate, async (req, res) => {
@@ -17,6 +17,7 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
       `
       SELECT 
         COUNT(*) AS total,
+
         COUNT(*) FILTER (WHERE status = 'created') AS created,
         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed,
@@ -24,7 +25,18 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
 
         COUNT(*) FILTER (WHERE priority = 'high') AS high_priority,
         COUNT(*) FILTER (WHERE priority = 'normal') AS normal_priority,
-        COUNT(*) FILTER (WHERE priority = 'low') AS low_priority
+        COUNT(*) FILTER (WHERE priority = 'low') AS low_priority,
+
+        -- BACKLOG
+        COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled')) AS backlog,
+
+        -- TIEMPO PROMEDIO (HORAS)
+        AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600) AS avg_hours,
+
+        -- NEGOCIO
+        SUM(final_cost) AS revenue,
+        SUM(final_cost - estimated_cost) AS total_margin,
+        AVG(final_cost - estimated_cost) AS avg_margin
 
       FROM techrepairpro.work_orders
       WHERE organization_id = $1
@@ -32,9 +44,33 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
       [orgId]
     );
 
+    const row = result.rows[0];
+
     res.json({
       success: true,
-      data: result.rows[0]
+      data: {
+        summary: {
+          total: Number(row.total),
+          created: Number(row.created),
+          in_progress: Number(row.in_progress),
+          completed: Number(row.completed),
+          cancelled: Number(row.cancelled)
+        },
+        operations: {
+          backlog: Number(row.backlog),
+          avg_hours: Number(row.avg_hours || 0)
+        },
+        business: {
+          revenue: Number(row.revenue || 0),
+          total_margin: Number(row.total_margin || 0),
+          avg_margin: Number(row.avg_margin || 0)
+        },
+        priority: {
+          high: Number(row.high_priority),
+          normal: Number(row.normal_priority),
+          low: Number(row.low_priority)
+        }
+      }
     });
 
   } catch (err) {
@@ -48,7 +84,7 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
 
 /*
 ========================================
-GET ALL WORK ORDERS (CON FILTROS)
+GET ALL WORK ORDERS
 ========================================
 */
 router.get("/", authenticate, async (req, res) => {
@@ -99,7 +135,7 @@ router.get("/", authenticate, async (req, res) => {
 
 /*
 ========================================
-CREATE WORK ORDER
+CREATE WORK ORDER (UPDATED)
 ========================================
 */
 router.post("/", authenticate, async (req, res) => {
@@ -110,50 +146,14 @@ router.post("/", authenticate, async (req, res) => {
       client_id,
       equipment_id,
       intake_notes,
-      priority
+      priority,
+      estimated_cost
     } = req.body;
 
     if (!client_id || !equipment_id) {
       return res.status(400).json({
         success: false,
         error: "client_id and equipment_id are required"
-      });
-    }
-
-    const clientCheck = await db.query(
-      `
-      SELECT id FROM techrepairpro.clients
-      WHERE id = $1 AND organization_id = $2
-      `,
-      [client_id, orgId]
-    );
-
-    if (!clientCheck.rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "Client not found"
-      });
-    }
-
-    const equipmentCheck = await db.query(
-      `
-      SELECT id, client_id FROM techrepairpro.equipment
-      WHERE id = $1 AND organization_id = $2
-      `,
-      [equipment_id, orgId]
-    );
-
-    if (!equipmentCheck.rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "Equipment not found"
-      });
-    }
-
-    if (equipmentCheck.rows[0].client_id !== client_id) {
-      return res.status(400).json({
-        success: false,
-        error: "Equipment does not belong to this client"
       });
     }
 
@@ -165,9 +165,11 @@ router.post("/", authenticate, async (req, res) => {
         equipment_id,
         intake_notes,
         priority,
-        status
+        status,
+        estimated_cost,
+        final_cost
       )
-      VALUES ($1,$2,$3,$4,$5,$6)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *
       `,
       [
@@ -176,7 +178,9 @@ router.post("/", authenticate, async (req, res) => {
         equipment_id,
         intake_notes || null,
         priority || "normal",
-        "created"
+        "created",
+        estimated_cost || 0,
+        0
       ]
     );
 
@@ -190,74 +194,24 @@ router.post("/", authenticate, async (req, res) => {
 
 /*
 ========================================
-GET WORK ORDER BY ID
+UPDATE FINAL COST (NUEVO)
 ========================================
 */
-router.get("/:id", authenticate, async (req, res) => {
+router.patch("/:id/cost", authenticate, async (req, res) => {
   try {
     const orgId = req.organization.id;
     const { id } = req.params;
-
-    const result = await db.query(
-      `
-      SELECT 
-        wo.*, 
-        c.full_name AS client_name, 
-        c.phone,
-        e.brand,
-        e.model,
-        e.serial_number
-      FROM techrepairpro.work_orders wo
-      LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
-      LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
-      WHERE wo.id = $1 AND wo.organization_id = $2
-      LIMIT 1
-      `,
-      [id, orgId]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "Work order not found"
-      });
-    }
-
-    res.json({ success: true, data: result.rows[0] });
-
-  } catch (err) {
-    console.error("GET WORK ORDER ERROR:", err);
-    res.status(500).json({ success: false, error: "Error fetching work order" });
-  }
-});
-
-/*
-========================================
-UPDATE STATUS
-========================================
-*/
-router.patch("/:id/status", authenticate, async (req, res) => {
-  try {
-    const orgId = req.organization.id;
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!status) {
-      return res.status(400).json({
-        success: false,
-        error: "status is required"
-      });
-    }
+    const { final_cost } = req.body;
 
     const result = await db.query(
       `
       UPDATE techrepairpro.work_orders
-      SET status = $1,
+      SET final_cost = $1,
           updated_at = NOW()
       WHERE id = $2 AND organization_id = $3
       RETURNING *
       `,
-      [status, id, orgId]
+      [final_cost, id, orgId]
     );
 
     if (!result.rows.length) {
@@ -270,8 +224,8 @@ router.patch("/:id/status", authenticate, async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
 
   } catch (err) {
-    console.error("UPDATE STATUS ERROR:", err);
-    res.status(500).json({ success: false, error: "Error updating status" });
+    console.error("UPDATE COST ERROR:", err);
+    res.status(500).json({ success: false, error: "Error updating cost" });
   }
 });
 
