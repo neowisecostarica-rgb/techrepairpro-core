@@ -45,7 +45,7 @@ router.post("/register", async (req, res) => {
     await client.query(
       `INSERT INTO memberships (user_id, organization_id, role)
        VALUES ($1, $2, $3)`,
-      [user.id, organization_id, "ORG_ADMIN"]
+      [user.id, organization_id, "ADMIN"]
     );
 
     await client.query("COMMIT");
