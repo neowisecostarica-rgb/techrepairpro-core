@@ -1,3 +1,5 @@
+console.log("🔥 AUTH ROUTES ACTIVE");
+
 import express from "express";
 import db from "../db.js";
 import bcrypt from "bcryptjs";
