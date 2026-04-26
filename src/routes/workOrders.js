@@ -6,13 +6,54 @@ const router = express.Router();
 
 /*
 ========================================
+GET WORK ORDER METRICS
+========================================
+*/
+router.get("/metrics/summary", authenticate, async (req, res) => {
+  try {
+    const orgId = req.organization.id;
+
+    const result = await db.query(
+      `
+      SELECT 
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE status = 'created') AS created,
+        COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+
+        COUNT(*) FILTER (WHERE priority = 'high') AS high_priority,
+        COUNT(*) FILTER (WHERE priority = 'normal') AS normal_priority,
+        COUNT(*) FILTER (WHERE priority = 'low') AS low_priority
+
+      FROM techrepairpro.work_orders
+      WHERE organization_id = $1
+      `,
+      [orgId]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error("METRICS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      error: "Error fetching metrics"
+    });
+  }
+});
+
+/*
+========================================
 GET ALL WORK ORDERS (CON FILTROS)
 ========================================
 */
 router.get("/", authenticate, async (req, res) => {
   try {
     const orgId = req.organization.id;
-
     const { status, priority } = req.query;
 
     let query = `
@@ -72,7 +113,6 @@ router.post("/", authenticate, async (req, res) => {
       priority
     } = req.body;
 
-    // VALIDACIÓN BÁSICA
     if (!client_id || !equipment_id) {
       return res.status(400).json({
         success: false,
@@ -80,7 +120,6 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // VALIDAR CLIENTE
     const clientCheck = await db.query(
       `
       SELECT id FROM techrepairpro.clients
@@ -96,7 +135,6 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // VALIDAR EQUIPMENT
     const equipmentCheck = await db.query(
       `
       SELECT id, client_id FROM techrepairpro.equipment
@@ -112,7 +150,6 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // VALIDAR RELACIÓN CLIENT ↔ EQUIPMENT
     if (equipmentCheck.rows[0].client_id !== client_id) {
       return res.status(400).json({
         success: false,
@@ -120,7 +157,6 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    // INSERT
     const result = await db.query(
       `
       INSERT INTO techrepairpro.work_orders (
