@@ -1,8 +1,9 @@
 /*
 ====================================================
-TRP — EQUIPMENT ROUTES (SOT AUTH P3)
+TRP — EQUIPMENT ROUTES (SOT AUTH P3 + P4 HARDENED)
 ====================================================
 */
+
 import express from "express";
 import pool from "../db.js";
 import { authenticate } from "../lib/auth.js";
@@ -16,9 +17,7 @@ UTIL: NORMALIZE TYPE
 ========================================
 */
 function normalizeType(type) {
-  return String(type || "")
-    .toLowerCase()
-    .trim();
+  return String(type || "").toLowerCase().trim();
 }
 
 /*
@@ -32,7 +31,7 @@ router.post(
   authorize(["owner", "admin"]),
   async (req, res) => {
     try {
-      const organization_id = req.user.organization_id;
+      const orgId = req.user.organization_id;
 
       let {
         client_id,
@@ -43,9 +42,6 @@ router.post(
         notes,
       } = req.body;
 
-      // ========================================
-      // VALIDACIÓN BÁSICA
-      // ========================================
       if (!client_id || !type) {
         return res.status(400).json({
           success: false,
@@ -53,43 +49,34 @@ router.post(
         });
       }
 
-      // ========================================
-      // NORMALIZACIÓN
-      // ========================================
       type = normalizeType(type);
 
-      // ========================================
-      // VALIDAR CLIENTE EXISTE (MULTITENANT SAFE)
-      // ========================================
+      // validar cliente
       const clientCheck = await pool.query(
-        `
-        SELECT id FROM clients
-        WHERE id = $1 AND organization_id = $2
-        `,
-        [client_id, organization_id]
+        `SELECT id FROM clients WHERE id = $1 AND organization_id = $2`,
+        [client_id, orgId]
       );
 
-      if (clientCheck.rows.length === 0) {
+      if (!clientCheck.rows.length) {
         return res.status(404).json({
           success: false,
           error: "Client not found",
         });
       }
 
-      // ========================================
-      // VALIDAR SERIAL ÚNICO (SI VIENE)
-      // ========================================
+      // normalizar serial
       if (serial_number) {
+        serial_number = serial_number.trim();
+
         const serialCheck = await pool.query(
           `
           SELECT id FROM equipment
-          WHERE serial_number = $1
-          AND organization_id = $2
+          WHERE serial_number = $1 AND organization_id = $2
           `,
-          [serial_number, organization_id]
+          [serial_number, orgId]
         );
 
-        if (serialCheck.rows.length > 0) {
+        if (serialCheck.rows.length) {
           return res.status(400).json({
             success: false,
             error: "Equipment with this serial already exists",
@@ -97,9 +84,6 @@ router.post(
         }
       }
 
-      // ========================================
-      // INSERT
-      // ========================================
       const { rows } = await pool.query(
         `
         INSERT INTO equipment (
@@ -111,11 +95,11 @@ router.post(
           serial_number,
           notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING *
         `,
         [
-          organization_id,
+          orgId,
           client_id,
           type,
           brand || null,
@@ -129,12 +113,11 @@ router.post(
         success: true,
         data: rows[0],
       });
-    } catch (error) {
-      console.error("❌ CREATE EQUIPMENT ERROR:", error.message);
 
+    } catch (error) {
       return res.status(500).json({
         success: false,
-        error: "Internal server error",
+        error: "Error creating equipment",
       });
     }
   }
@@ -142,34 +125,117 @@ router.post(
 
 /*
 ========================================
-GET ALL EQUIPMENT (POR ORG)
+GET ALL EQUIPMENT
 ========================================
 */
 router.get("/", authenticate, async (req, res) => {
   try {
-    const organization_id = req.user.organization_id;
+    const orgId = req.user.organization_id;
 
     const { rows } = await pool.query(
       `
-      SELECT * FROM equipment
+      SELECT *
+      FROM equipment
       WHERE organization_id = $1
       ORDER BY created_at DESC
       `,
-      [organization_id]
+      [orgId]
     );
 
     return res.json({
       success: true,
       data: rows,
     });
-  } catch (error) {
-    console.error("❌ GET EQUIPMENT ERROR:", error.message);
 
+  } catch (error) {
     return res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: "Error fetching equipment",
     });
   }
 });
+
+/*
+========================================
+GET EQUIPMENT BY ID
+========================================
+*/
+router.get("/:id", authenticate, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT *
+      FROM equipment
+      WHERE id = $1 AND organization_id = $2
+      LIMIT 1
+      `,
+      [id, orgId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipment not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: rows[0],
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: "Error fetching equipment",
+    });
+  }
+});
+
+/*
+========================================
+DELETE EQUIPMENT
+========================================
+*/
+router.delete(
+  "/:id",
+  authenticate,
+  authorize(["owner"]),
+  async (req, res) => {
+    try {
+      const orgId = req.user.organization_id;
+      const { id } = req.params;
+
+      const result = await pool.query(
+        `
+        DELETE FROM equipment
+        WHERE id = $1 AND organization_id = $2
+        RETURNING id
+        `,
+        [id, orgId]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: "Equipment not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+      });
+
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: "Error deleting equipment",
+      });
+    }
+  }
+);
 
 export default router;
