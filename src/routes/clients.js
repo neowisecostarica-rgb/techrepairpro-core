@@ -13,12 +13,12 @@ router.get("/", authenticate, async (req, res) => {
   try {
     console.log("🔍 GET /clients");
 
-    if (!req.organization || !req.organization.id) {
-      console.error("❌ Missing organization in request");
+    if (!req.user || !req.user.organization_id) {
+      console.error("❌ Missing organization in token");
       return res.status(400).json({ error: "Missing organization context" });
     }
 
-    const orgId = req.organization.id;
+    const orgId = req.user.organization_id;
 
     console.log("🏢 ORG ID:", orgId);
 
@@ -34,7 +34,6 @@ router.get("/", authenticate, async (req, res) => {
 
     console.log("✅ CLIENTS FOUND:", result.rows.length);
 
-    // 🔥 FIX CLAVE → devolver array directo
     res.json(result.rows);
 
   } catch (err) {
@@ -50,11 +49,11 @@ GET CLIENT BY ID
 */
 router.get("/:id", authenticate, async (req, res) => {
   try {
-    if (!req.organization || !req.organization.id) {
+    if (!req.user || !req.user.organization_id) {
       return res.status(400).json({ error: "Missing organization context" });
     }
 
-    const orgId = req.organization.id;
+    const orgId = req.user.organization_id;
     const { id } = req.params;
 
     const result = await pool.query(
@@ -86,11 +85,11 @@ CREATE CLIENT
 */
 router.post("/", authenticate, async (req, res) => {
   try {
-    if (!req.organization || !req.organization.id) {
+    if (!req.user || !req.user.organization_id) {
       return res.status(400).json({ error: "Missing organization context" });
     }
 
-    const orgId = req.organization.id;
+    const orgId = req.user.organization_id;
 
     const {
       full_name,
@@ -145,11 +144,11 @@ UPDATE CLIENT
 */
 router.put("/:id", authenticate, async (req, res) => {
   try {
-    if (!req.organization || !req.organization.id) {
+    if (!req.user || !req.user.organization_id) {
       return res.status(400).json({ error: "Missing organization context" });
     }
 
-    const orgId = req.organization.id;
+    const orgId = req.user.organization_id;
     const { id } = req.params;
 
     const {
@@ -206,11 +205,11 @@ DELETE CLIENT
 */
 router.delete("/:id", authenticate, async (req, res) => {
   try {
-    if (!req.organization || !req.organization.id) {
+    if (!req.user || !req.user.organization_id) {
       return res.status(400).json({ error: "Missing organization context" });
     }
 
-    const orgId = req.organization.id;
+    const orgId = req.user.organization_id;
     const { id } = req.params;
 
     await pool.query(
