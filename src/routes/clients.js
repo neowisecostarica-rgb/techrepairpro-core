@@ -87,6 +87,15 @@ CREATE CLIENT
 */
 router.post("/", authenticate, async (req, res) => {
   try {
+
+    // 🔐 CONTROL DE ROLES (PRIMERO)
+    if (req.user.role === "user") {
+      return res.status(403).json({
+        error: "No permission to create clients",
+      });
+    }
+
+    // 🔍 VALIDACIÓN DE CONTEXTO
     if (!req.user || !req.user.organization_id) {
       return res.status(400).json({ error: "Missing organization context" });
     }
