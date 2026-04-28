@@ -1,6 +1,6 @@
 /*
 ====================================================
-TRP — CLIENTS ROUTES (SOT AUTH P3)
+TRP — CLIENTS ROUTES (SOT AUTH P3 + P4 HARDENED)
 ====================================================
 */
 
@@ -36,7 +36,6 @@ router.get("/", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ GET CLIENTS ERROR:", err);
     return res.status(500).json({
       success: false,
       error: "Error fetching clients",
@@ -64,7 +63,7 @@ router.get("/:id", authenticate, async (req, res) => {
       [id, orgId]
     );
 
-    if (result.rows.length === 0) {
+    if (!result.rows.length) {
       return res.status(404).json({
         success: false,
         error: "Client not found",
@@ -77,7 +76,6 @@ router.get("/:id", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ GET CLIENT ERROR:", err);
     return res.status(500).json({
       success: false,
       error: "Error fetching client",
@@ -131,7 +129,7 @@ router.post(
         [
           orgId,
           full_name,
-          phone,
+          phone || null,
           email || null,
           id_number || null,
           client_type,
@@ -145,7 +143,6 @@ router.post(
       });
 
     } catch (err) {
-      console.error("❌ CREATE CLIENT ERROR:", err);
       return res.status(500).json({
         success: false,
         error: "Error creating client",
@@ -177,6 +174,21 @@ router.put(
         notes,
       } = req.body;
 
+      // 🔒 evitar update vacío
+      if (
+        !full_name &&
+        !phone &&
+        !email &&
+        !id_number &&
+        !client_type &&
+        !notes
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "At least one field must be provided",
+        });
+      }
+
       const result = await pool.query(
         `
         UPDATE clients
@@ -203,7 +215,7 @@ router.put(
         ]
       );
 
-      if (result.rows.length === 0) {
+      if (!result.rows.length) {
         return res.status(404).json({
           success: false,
           error: "Client not found",
@@ -216,7 +228,6 @@ router.put(
       });
 
     } catch (err) {
-      console.error("❌ UPDATE CLIENT ERROR:", err);
       return res.status(500).json({
         success: false,
         error: "Error updating client",
@@ -239,20 +250,27 @@ router.delete(
       const orgId = req.user.organization_id;
       const { id } = req.params;
 
-      await pool.query(
+      const result = await pool.query(
         `
         DELETE FROM clients
         WHERE id = $1 AND organization_id = $2
+        RETURNING id
         `,
         [id, orgId]
       );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: "Client not found",
+        });
+      }
 
       return res.json({
         success: true,
       });
 
     } catch (err) {
-      console.error("❌ DELETE CLIENT ERROR:", err);
       return res.status(500).json({
         success: false,
         error: "Error deleting client",
