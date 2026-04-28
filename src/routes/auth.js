@@ -131,14 +131,20 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const membershipResult = await db.query(
-      `SELECT id, user_id, organization_id, role, is_active
-       FROM memberships
-       WHERE user_id = $1
-         AND is_active = true
-       LIMIT 1`,
-      [user.id]
-    );
+   const membershipResult = await db.query(
+  `SELECT id, user_id, organization_id, role, is_active
+   FROM memberships
+   WHERE user_id = $1
+     AND is_active = true
+   ORDER BY 
+     CASE 
+       WHEN role = 'owner' THEN 1
+       WHEN role = 'admin' THEN 2
+       ELSE 3
+     END
+   LIMIT 1`,
+  [user.id]
+);
 
     if (membershipResult.rows.length === 0) {
       return res.status(403).json({
