@@ -13,6 +13,7 @@ router.get("/", authenticate, async (req, res) => {
   try {
     console.log("🔍 GET /clients");
     console.log("🔥 USER IN REQUEST:", req.user);
+    console.log("🔐 ROLE:", req.user.role);
     
     if (!req.user || !req.user.organization_id) {
       console.error("❌ Missing organization in token");
