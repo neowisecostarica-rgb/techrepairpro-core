@@ -1,46 +1,48 @@
-import pool from "../db.js";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || "super_secret_dev_key";
 
 export async function authenticate(req, res, next) {
   try {
-    const orgId = req.headers["x-organization-id"];
-
     console.log("🔐 AUTH START");
-    console.log("➡️ orgId:", orgId);
 
-    if (!orgId) {
-      return res
-        .status(401)
-        .json({ success: false, error: "organization_id required" });
+    const authHeader = req.headers["authorization"];
+
+    console.log("➡️ Authorization Header:", authHeader);
+
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization header required",
+      });
     }
 
-    console.log("📡 Querying DB...");
+    const token = authHeader.split(" ")[1];
 
-    const result = await pool.query(
-      "SELECT id, name FROM organizations WHERE id = $1 LIMIT 1",
-      [orgId]
-    );
-
-    console.log("📊 DB RESULT:", result.rows);
-
-    if (!result.rows.length) {
-      console.log("❌ Organization not found");
-      return res
-        .status(401)
-        .json({ success: false, error: "Invalid organization" });
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Token missing",
+      });
     }
 
-    req.organization = result.rows[0];
+    const decoded = jwt.verify(token, JWT_SECRET);
 
-    console.log("✅ AUTH SUCCESS:", req.organization);
+    console.log("✅ TOKEN DECODED:", decoded);
+
+    req.user = {
+      user_id: decoded.user_id,
+      organization_id: decoded.organization_id,
+      role: decoded.role,
+    };
 
     next();
   } catch (err) {
     console.error("🚨 AUTH ERROR FULL:", err);
 
-    return res.status(500).json({
+    return res.status(401).json({
       success: false,
-      error: "Auth failed",
-      details: err.message, // 👈 esto es clave para debug
+      error: "Invalid token",
     });
   }
 }
