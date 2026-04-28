@@ -1,6 +1,6 @@
 /*
 ====================================================
-TRP — WORK ORDERS ROUTES (SOT AUTH P3)
+TRP — WORK ORDERS ROUTES (SOT AUTH P3 + P4 HARDENED)
 ====================================================
 */
 
@@ -13,7 +13,7 @@ const router = express.Router();
 
 /*
 ========================================
-GET WORK ORDER METRICS (PRO)
+GET WORK ORDER METRICS
 ========================================
 */
 router.get("/metrics/summary", authenticate, async (req, res) => {
@@ -44,7 +44,7 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
 
     const row = result.rows[0];
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         summary: {
@@ -70,9 +70,9 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
         },
       },
     });
-  } catch (err) {
-    console.error("❌ METRICS ERROR:", err);
-    res.status(500).json({
+
+  } catch {
+    return res.status(500).json({
       success: false,
       error: "Error fetching metrics",
     });
@@ -121,15 +121,55 @@ router.get("/", authenticate, async (req, res) => {
 
     const result = await db.query(query, params);
 
-    res.json({
+    return res.json({
       success: true,
       data: result.rows,
     });
-  } catch (err) {
-    console.error("❌ GET WORK ORDERS ERROR:", err);
-    res.status(500).json({
+
+  } catch {
+    return res.status(500).json({
       success: false,
       error: "Error fetching work orders",
+    });
+  }
+});
+
+/*
+========================================
+GET WORK ORDER BY ID
+========================================
+*/
+router.get("/:id", authenticate, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const { id } = req.params;
+
+    const result = await db.query(
+      `
+      SELECT *
+      FROM techrepairpro.work_orders
+      WHERE id = $1 AND organization_id = $2
+      LIMIT 1
+      `,
+      [id, orgId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "Work order not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: result.rows[0],
+    });
+
+  } catch {
+    return res.status(500).json({
+      success: false,
+      error: "Error fetching work order",
     });
   }
 });
@@ -184,18 +224,18 @@ router.post(
           intake_notes || null,
           priority || "normal",
           "created",
-          estimated_cost || 0,
+          Number(estimated_cost) || 0,
           0,
         ]
       );
 
-      res.json({
+      return res.json({
         success: true,
         data: result.rows[0],
       });
-    } catch (err) {
-      console.error("❌ CREATE WORK ORDER ERROR:", err);
-      res.status(500).json({
+
+    } catch {
+      return res.status(500).json({
         success: false,
         error: "Error creating work order",
       });
@@ -218,6 +258,13 @@ router.patch(
       const { id } = req.params;
       const { final_cost } = req.body;
 
+      if (final_cost === undefined || isNaN(final_cost)) {
+        return res.status(400).json({
+          success: false,
+          error: "final_cost must be a valid number",
+        });
+      }
+
       const result = await db.query(
         `
         UPDATE techrepairpro.work_orders
@@ -226,7 +273,7 @@ router.patch(
         WHERE id = $2 AND organization_id = $3
         RETURNING *
         `,
-        [final_cost, id, orgId]
+        [Number(final_cost), id, orgId]
       );
 
       if (!result.rows.length) {
@@ -236,15 +283,58 @@ router.patch(
         });
       }
 
-      res.json({
+      return res.json({
         success: true,
         data: result.rows[0],
       });
-    } catch (err) {
-      console.error("❌ UPDATE COST ERROR:", err);
-      res.status(500).json({
+
+    } catch {
+      return res.status(500).json({
         success: false,
         error: "Error updating cost",
+      });
+    }
+  }
+);
+
+/*
+========================================
+DELETE WORK ORDER
+========================================
+*/
+router.delete(
+  "/:id",
+  authenticate,
+  authorize(["owner"]),
+  async (req, res) => {
+    try {
+      const orgId = req.user.organization_id;
+      const { id } = req.params;
+
+      const result = await db.query(
+        `
+        DELETE FROM techrepairpro.work_orders
+        WHERE id = $1 AND organization_id = $2
+        RETURNING id
+        `,
+        [id, orgId]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: "Work order not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+      });
+
+    } catch {
+      return res.status(500).json({
+        success: false,
+        error: "Error deleting work order",
       });
     }
   }
