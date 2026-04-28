@@ -33,7 +33,7 @@ export async function authenticate(req, res, next) {
     req.user = {
       user_id: decoded.user_id,
       organization_id: decoded.organization_id,
-      role: "user",
+      role: decoded.role
     };
 
     next();
