@@ -1,6 +1,14 @@
+/*
+====================================================
+TRP — SERVER CORE (P1–P4 READY)
+====================================================
+*/
+
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 import healthRoutes from "./routes/health.js";
 import clientsRoutes from "./routes/clients.js";
@@ -14,6 +22,25 @@ dotenv.config();
 
 const app = express();
 
+/*
+========================================
+SECURITY (P4)
+========================================
+*/
+app.use(helmet());
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 100, // max requests por IP
+});
+
+app.use(limiter);
+
+/*
+========================================
+MIDDLEWARES
+========================================
+*/
 app.use(cors());
 app.use(express.json());
 
@@ -31,19 +58,22 @@ app.get("/", (req, res) => {
 
 /*
 ========================================
-DB TEST
+DB TEST (solo dev)
 ========================================
 */
 async function testDB() {
   try {
     const result = await db.query("SELECT NOW()");
-    console.log("✅ DB connected:", result.rows[0]);
+    console.log("✅ DB connected");
   } catch (err) {
     console.error("❌ DB connection error:", err.message);
   }
 }
 
-testDB();
+// Solo correr en desarrollo
+if (process.env.NODE_ENV !== "production") {
+  testDB();
+}
 
 /*
 ========================================
@@ -51,10 +81,10 @@ ROUTES
 ========================================
 */
 app.use("/health", healthRoutes);
+app.use("/v1/auth", authRoutes);
 app.use("/v1/clients", clientsRoutes);
 app.use("/v1/work-orders", workOrdersRoutes);
 app.use("/v1/equipment", equipmentRoutes);
-app.use("/v1/auth", authRoutes);
 
 /*
 ========================================
