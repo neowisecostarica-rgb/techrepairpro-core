@@ -12,7 +12,8 @@ GET ALL CLIENTS
 router.get("/", authenticate, async (req, res) => {
   try {
     console.log("🔍 GET /clients");
-
+    console.log("🔥 USER IN REQUEST:", req.user);
+    
     if (!req.user || !req.user.organization_id) {
       console.error("❌ Missing organization in token");
       return res.status(400).json({ error: "Missing organization context" });
