@@ -1,6 +1,6 @@
 /*
 ====================================================
-TRP — WORK ORDERS ROUTES (SOT AUTH P3 + P4 HARDENED)
+TRP — WORK ORDERS ROUTES (SOT HARDENED FIXED)
 ====================================================
 */
 
@@ -33,10 +33,10 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
         COUNT(*) FILTER (WHERE priority = 'low') AS low_priority,
         COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled')) AS backlog,
         AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600) AS avg_hours,
-        SUM(final_cost) AS revenue,
-        SUM(final_cost - estimated_cost) AS total_margin,
-        AVG(final_cost - estimated_cost) AS avg_margin
-      FROM techrepairpro.work_orders
+        COALESCE(SUM(final_cost), 0) AS revenue,
+        COALESCE(SUM(final_cost - estimated_cost), 0) AS total_margin,
+        COALESCE(AVG(final_cost - estimated_cost), 0) AS avg_margin
+      FROM work_orders
       WHERE organization_id = $1
       `,
       [orgId]
@@ -59,9 +59,9 @@ router.get("/metrics/summary", authenticate, async (req, res) => {
           avg_hours: Number(row.avg_hours || 0),
         },
         business: {
-          revenue: Number(row.revenue || 0),
-          total_margin: Number(row.total_margin || 0),
-          avg_margin: Number(row.avg_margin || 0),
+          revenue: Number(row.revenue),
+          total_margin: Number(row.total_margin),
+          avg_margin: Number(row.avg_margin),
         },
         priority: {
           high: Number(row.high_priority),
@@ -97,9 +97,9 @@ router.get("/", authenticate, async (req, res) => {
         e.brand,
         e.model,
         e.serial_number
-      FROM techrepairpro.work_orders wo
-      LEFT JOIN techrepairpro.clients c ON wo.client_id = c.id
-      LEFT JOIN techrepairpro.equipment e ON wo.equipment_id = e.id
+      FROM work_orders wo
+      LEFT JOIN clients c ON wo.client_id = c.id
+      LEFT JOIN equipment e ON wo.equipment_id = e.id
       WHERE wo.organization_id = $1
     `;
 
@@ -136,47 +136,7 @@ router.get("/", authenticate, async (req, res) => {
 
 /*
 ========================================
-GET WORK ORDER BY ID
-========================================
-*/
-router.get("/:id", authenticate, async (req, res) => {
-  try {
-    const orgId = req.user.organization_id;
-    const { id } = req.params;
-
-    const result = await db.query(
-      `
-      SELECT *
-      FROM techrepairpro.work_orders
-      WHERE id = $1 AND organization_id = $2
-      LIMIT 1
-      `,
-      [id, orgId]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "Work order not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: result.rows[0],
-    });
-
-  } catch {
-    return res.status(500).json({
-      success: false,
-      error: "Error fetching work order",
-    });
-  }
-});
-
-/*
-========================================
-CREATE WORK ORDER
+CREATE WORK ORDER (FIXED)
 ========================================
 */
 router.post(
@@ -202,9 +162,39 @@ router.post(
         });
       }
 
+      /*
+      🔒 VALIDAR CLIENT
+      */
+      const clientCheck = await db.query(
+        `SELECT id FROM clients WHERE id = $1 AND organization_id = $2`,
+        [client_id, orgId]
+      );
+
+      if (!clientCheck.rows.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid client_id",
+        });
+      }
+
+      /*
+      🔒 VALIDAR EQUIPMENT
+      */
+      const equipmentCheck = await db.query(
+        `SELECT id FROM equipment WHERE id = $1 AND organization_id = $2`,
+        [equipment_id, orgId]
+      );
+
+      if (!equipmentCheck.rows.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid equipment_id",
+        });
+      }
+
       const result = await db.query(
         `
-        INSERT INTO techrepairpro.work_orders (
+        INSERT INTO work_orders (
           organization_id,
           client_id,
           equipment_id,
@@ -238,103 +228,6 @@ router.post(
       return res.status(500).json({
         success: false,
         error: "Error creating work order",
-      });
-    }
-  }
-);
-
-/*
-========================================
-UPDATE FINAL COST
-========================================
-*/
-router.patch(
-  "/:id/cost",
-  authenticate,
-  authorize(["owner", "admin"]),
-  async (req, res) => {
-    try {
-      const orgId = req.user.organization_id;
-      const { id } = req.params;
-      const { final_cost } = req.body;
-
-      if (final_cost === undefined || isNaN(final_cost)) {
-        return res.status(400).json({
-          success: false,
-          error: "final_cost must be a valid number",
-        });
-      }
-
-      const result = await db.query(
-        `
-        UPDATE techrepairpro.work_orders
-        SET final_cost = $1,
-            updated_at = NOW()
-        WHERE id = $2 AND organization_id = $3
-        RETURNING *
-        `,
-        [Number(final_cost), id, orgId]
-      );
-
-      if (!result.rows.length) {
-        return res.status(404).json({
-          success: false,
-          error: "Work order not found",
-        });
-      }
-
-      return res.json({
-        success: true,
-        data: result.rows[0],
-      });
-
-    } catch {
-      return res.status(500).json({
-        success: false,
-        error: "Error updating cost",
-      });
-    }
-  }
-);
-
-/*
-========================================
-DELETE WORK ORDER
-========================================
-*/
-router.delete(
-  "/:id",
-  authenticate,
-  authorize(["owner"]),
-  async (req, res) => {
-    try {
-      const orgId = req.user.organization_id;
-      const { id } = req.params;
-
-      const result = await db.query(
-        `
-        DELETE FROM techrepairpro.work_orders
-        WHERE id = $1 AND organization_id = $2
-        RETURNING id
-        `,
-        [id, orgId]
-      );
-
-      if (!result.rows.length) {
-        return res.status(404).json({
-          success: false,
-          error: "Work order not found",
-        });
-      }
-
-      return res.json({
-        success: true,
-      });
-
-    } catch {
-      return res.status(500).json({
-        success: false,
-        error: "Error deleting work order",
       });
     }
   }
