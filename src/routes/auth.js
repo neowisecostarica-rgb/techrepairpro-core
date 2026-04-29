@@ -11,71 +11,118 @@ const JWT_SECRET = process.env.JWT_SECRET || "super_secret_dev_key";
 
 /*
 ========================================
-REGISTER
+AUTH SYNC (BASE44 → SOT) 🔥 CRÍTICO
 ========================================
 */
-router.post("/register", async (req, res) => {
+router.post("/sync", async (req, res) => {
   const client = await db.connect();
 
   try {
-    const { email, password, full_name, organization_id } = req.body;
+    const { base44_id, email, full_name, organization_id, role } = req.body;
 
-    if (!email || !password || !organization_id) {
+    if (!base44_id || !organization_id) {
       client.release();
-
       return res.status(400).json({
         success: false,
-        error: "email, password, organization_id are required",
+        error: "base44_id and organization_id are required",
       });
     }
 
     await client.query("BEGIN");
 
-    const password_hash = await bcrypt.hash(password, 10);
-
-    const userResult = await client.query(
-      `INSERT INTO users (email, password_hash, full_name)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, full_name`,
-      [email, password_hash, full_name || null]
+    /*
+    ========================================
+    1. BUSCAR USUARIO POR base44_id
+    ========================================
+    */
+    let userResult = await client.query(
+      `SELECT * FROM users WHERE base44_id = $1 LIMIT 1`,
+      [base44_id]
     );
 
-    const user = userResult.rows[0];
+    let user;
 
+    if (userResult.rows.length === 0) {
+      /*
+      ========================================
+      CREAR USUARIO
+      ========================================
+      */
+      const newUser = await client.query(
+        `INSERT INTO users (email, full_name, base44_id)
+         VALUES ($1, $2, $3)
+         RETURNING id, email, full_name`,
+        [email || null, full_name || null, base44_id]
+      );
+
+      user = newUser.rows[0];
+    } else {
+      user = userResult.rows[0];
+    }
+
+    /*
+    ========================================
+    2. UPSERT MEMBERSHIP
+    ========================================
+    */
     await client.query(
-      `INSERT INTO memberships (user_id, organization_id, role)
-       VALUES ($1, $2, $3)`,
-      [user.id, organization_id, "admin"]
+      `INSERT INTO memberships (user_id, organization_id, role, is_active)
+       VALUES ($1, $2, LOWER($3), true)
+       ON CONFLICT (user_id, organization_id)
+       DO UPDATE SET role = EXCLUDED.role`,
+      [user.id, organization_id, role || "admin"]
+    );
+
+    /*
+    ========================================
+    3. OBTENER MEMBERSHIP
+    ========================================
+    */
+    const membershipResult = await client.query(
+      `SELECT * FROM memberships
+       WHERE user_id = $1 AND organization_id = $2
+       LIMIT 1`,
+      [user.id, organization_id]
+    );
+
+    const membership = membershipResult.rows[0];
+
+    /*
+    ========================================
+    4. GENERAR JWT
+    ========================================
+    */
+    const token = jwt.sign(
+      {
+        user_id: user.id,
+        membership_id: membership.id,
+        organization_id: membership.organization_id,
+        role: membership.role,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
     );
 
     await client.query("COMMIT");
 
     return res.json({
       success: true,
+      token,
       user,
+      membership,
     });
   } catch (error) {
     try {
       await client.query("ROLLBACK");
     } catch (rollbackError) {
-      console.error("🔥 REGISTER ROLLBACK ERROR:", rollbackError);
+      console.error("🔥 SYNC ROLLBACK ERROR:", rollbackError);
     }
 
-    console.error("🔥 REGISTER ERROR FULL:", error);
-
-    if (error.code === "23505") {
-      return res.status(400).json({
-        success: false,
-        error: "Email already exists",
-        detail: error.detail || null,
-      });
-    }
+    console.error("🔥 AUTH SYNC ERROR:", error);
 
     return res.status(500).json({
       success: false,
       error: error.message,
-      detail: error.detail || null,
-      code: error.code || null,
     });
   } finally {
     client.release();
@@ -84,7 +131,7 @@ router.post("/register", async (req, res) => {
 
 /*
 ========================================
-LOGIN
+LOGIN (SE MANTIENE)
 ========================================
 */
 router.post("/login", async (req, res) => {
@@ -99,10 +146,7 @@ router.post("/login", async (req, res) => {
     }
 
     const userResult = await db.query(
-      `SELECT id, email, full_name, password_hash, is_active
-       FROM users
-       WHERE email = $1
-       LIMIT 1`,
+      `SELECT * FROM users WHERE email = $1 LIMIT 1`,
       [email]
     );
 
@@ -115,13 +159,6 @@ router.post("/login", async (req, res) => {
 
     const user = userResult.rows[0];
 
-    if (user.is_active === false) {
-      return res.status(403).json({
-        success: false,
-        error: "User is inactive",
-      });
-    }
-
     const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
@@ -131,27 +168,12 @@ router.post("/login", async (req, res) => {
       });
     }
 
-   const membershipResult = await db.query(
-  `SELECT id, user_id, organization_id, role, is_active
-   FROM memberships
-   WHERE user_id = $1
-     AND is_active = true
-   ORDER BY 
-     CASE 
-       WHEN role = 'owner' THEN 1
-       WHEN role = 'admin' THEN 2
-       ELSE 3
-     END
-   LIMIT 1`,
-  [user.id]
-);
-
-    if (membershipResult.rows.length === 0) {
-      return res.status(403).json({
-        success: false,
-        error: "No active organization assigned",
-      });
-    }
+    const membershipResult = await db.query(
+      `SELECT * FROM memberships
+       WHERE user_id = $1 AND is_active = true
+       LIMIT 1`,
+      [user.id]
+    );
 
     const membership = membershipResult.rows[0];
 
@@ -169,38 +191,28 @@ router.post("/login", async (req, res) => {
     return res.json({
       success: true,
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-      },
-      membership: {
-        id: membership.id,
-        organization_id: membership.organization_id,
-        role: membership.role,
-      },
+      user,
+      membership,
     });
   } catch (error) {
-    console.error("🔥 LOGIN ERROR FULL:", error);
+    console.error("🔥 LOGIN ERROR:", error);
 
     return res.status(500).json({
       success: false,
       error: error.message,
-      detail: error.detail || null,
-      code: error.code || null,
     });
   }
 });
 
 /*
 ========================================
-ME (TEMPORAL)
+ME
 ========================================
 */
-router.get("/me", async (req, res) => {
+router.get("/me", (req, res) => {
   return res.json({
     success: true,
-    message: "AUTH routes active. Middleware JWT comes next.",
+    message: "AUTH SOT READY",
   });
 });
 
