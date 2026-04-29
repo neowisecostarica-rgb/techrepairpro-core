@@ -1,6 +1,6 @@
 /*
 ====================================================
-TRP — EQUIPMENT ROUTES (SOT AUTH P3 + P4 HARDENED)
+TRP — EQUIPMENT ROUTES (SOT HARDENED FINAL)
 ====================================================
 */
 
@@ -19,6 +19,25 @@ UTIL: NORMALIZE TYPE
 function normalizeType(type) {
   return String(type || "").toLowerCase().trim();
 }
+
+/*
+========================================
+UTIL: NORMALIZE SERIAL
+========================================
+*/
+function normalizeSerial(serial) {
+  return String(serial || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+/*
+========================================
+VALID TYPES (SOT CONTROL)
+========================================
+*/
+const VALID_TYPES = ["laptop", "desktop", "printer", "other"];
 
 /*
 ========================================
@@ -51,7 +70,16 @@ router.post(
 
       type = normalizeType(type);
 
-      // validar cliente
+      if (!VALID_TYPES.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid equipment type",
+        });
+      }
+
+      /*
+      VALIDAR CLIENT
+      */
       const clientCheck = await pool.query(
         `SELECT id FROM clients WHERE id = $1 AND organization_id = $2`,
         [client_id, orgId]
@@ -64,9 +92,11 @@ router.post(
         });
       }
 
-      // normalizar serial
+      /*
+      VALIDAR SERIAL
+      */
       if (serial_number) {
-        serial_number = serial_number.trim();
+        serial_number = normalizeSerial(serial_number);
 
         const serialCheck = await pool.query(
           `
@@ -114,7 +144,7 @@ router.post(
         data: rows[0],
       });
 
-    } catch (error) {
+    } catch {
       return res.status(500).json({
         success: false,
         error: "Error creating equipment",
@@ -125,7 +155,7 @@ router.post(
 
 /*
 ========================================
-GET ALL EQUIPMENT
+GET ALL EQUIPMENT (MEJORADO)
 ========================================
 */
 router.get("/", authenticate, async (req, res) => {
@@ -134,10 +164,13 @@ router.get("/", authenticate, async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT *
-      FROM equipment
-      WHERE organization_id = $1
-      ORDER BY created_at DESC
+      SELECT 
+        e.*,
+        c.full_name AS client_name
+      FROM equipment e
+      LEFT JOIN clients c ON e.client_id = c.id
+      WHERE e.organization_id = $1
+      ORDER BY e.created_at DESC
       `,
       [orgId]
     );
@@ -147,7 +180,7 @@ router.get("/", authenticate, async (req, res) => {
       data: rows,
     });
 
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       error: "Error fetching equipment",
@@ -187,7 +220,7 @@ router.get("/:id", authenticate, async (req, res) => {
       data: rows[0],
     });
 
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       error: "Error fetching equipment",
@@ -197,7 +230,7 @@ router.get("/:id", authenticate, async (req, res) => {
 
 /*
 ========================================
-DELETE EQUIPMENT
+DELETE EQUIPMENT (PROTEGIDO)
 ========================================
 */
 router.delete(
@@ -208,6 +241,21 @@ router.delete(
     try {
       const orgId = req.user.organization_id;
       const { id } = req.params;
+
+      /*
+      🔒 VALIDAR QUE NO TENGA WORK ORDERS
+      */
+      const checkWO = await pool.query(
+        `SELECT id FROM work_orders WHERE equipment_id = $1 LIMIT 1`,
+        [id]
+      );
+
+      if (checkWO.rows.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot delete equipment with work orders",
+        });
+      }
 
       const result = await pool.query(
         `
@@ -229,7 +277,7 @@ router.delete(
         success: true,
       });
 
-    } catch (error) {
+    } catch {
       return res.status(500).json({
         success: false,
         error: "Error deleting equipment",
